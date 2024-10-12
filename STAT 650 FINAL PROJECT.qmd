@@ -1,0 +1,145 @@
+---
+title: "STAT 650 FINAL PROJECT"
+format:
+    html:
+     self-contained: true
+---
+
+
+### Loading necessay libraries
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(randomForest)
+library(corrplot)
+library(reshape2)
+library(ggcorrplot)
+library(pROC) 
+
+```
+
+
+### Loading the dataset
+```{r}
+# Read the dataset
+data <- read.csv("C:\\Users\\sowmy\\OneDrive\\Documents\\diabetes.csv")
+
+# Ensure the Outcome variable is a factor
+data$Outcome <- as.factor(data$Outcome)
+
+
+```
+
+### Distribution of response variable
+
+```{r}
+# Create a bar plot for the distribution of the Outcome variable
+ggplot(data, aes(x = as.factor(Outcome))) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Outcome",
+       x = "Outcome",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+### Before removing outliers
+
+```{r}
+
+df_melted <- melt(data)
+ggplot(df_melted, aes(x = variable, y = value)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(title = "Outliers Detection", x = "Variables", y = "Values") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Removing outliers
+
+```{r}
+
+remove_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR_value <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  x[x < lower_bound | x > upper_bound] <- NA
+  return(x)
+}
+
+data_clean <- data.frame(lapply(data, function(col) {
+  if(is.numeric(col)) remove_outliers(col) else col
+}))
+
+data_clean <- na.omit(data_clean)
+
+```
+
+### Boxplot after removing outliers
+
+```{r}
+df_clean_melted <- melt(data_clean)
+ggplot(df_clean_melted, aes(x = variable, y = value)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(title = "Outliers Detection", x = "Variables", y = "Values") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Calculating and visualizing correlation matrix
+
+```{r}
+
+numeric_columns <- data_clean %>% select_if(is.numeric)
+correlation_matrix <- cor(numeric_columns, use = "complete.obs")
+print(correlation_matrix)
+
+
+ggcorrplot(correlation_matrix, lab = TRUE, title = "Correlation Matrix")
+
+
+data_cleaned <- subset(data_clean, select = -c(BloodPressure, SkinThickness, Insulin, DiabetesPedigreeFunction))
+
+```
+
+### RAndom forest Approach
+
+```{r}
+
+set.seed(123)
+trainIndex <- createDataPartition(data_cleaned$Outcome, p = 0.7, list = FALSE)
+train_data <- data_cleaned[trainIndex, ]
+test_data <- data_cleaned[-trainIndex, ]
+train_data$Outcome <- as.factor(train_data$Outcome)
+rf_model <- randomForest(Outcome ~ ., data = train_data, ntree = 100, importance = TRUE)
+predicted_probabilities <- predict(rf_model, newdata = test_data, type = "prob")[, 2]
+
+# Convert actual outcomes to a factor
+actual_classes <- factor(test_data$Outcome, levels = c(0, 1))
+
+```
+
+### Plotting ROC curve
+
+```{r}
+roc_curve <- roc(actual_classes, predicted_probabilities)
+plot(roc_curve, 
+     main = "ROC Curve", 
+     col = "blue", 
+     lwd = 2)
+auc_value <- auc(roc_curve)
+legend("bottomright", legend = paste("AUC =", round(auc_value, 2)), 
+       col = "blue", lwd = 2)
+predicted_classes <- ifelse(predicted_probabilities > 0.5, 1, 0)
+predicted_classes <- factor(predicted_classes, levels = c(0, 1))
+conf_matrix <- confusionMatrix(predicted_classes, actual_classes)
+print(conf_matrix)
+
+```
